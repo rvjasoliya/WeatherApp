@@ -10,6 +10,8 @@ import FirebaseAuth
 import SDWebImage
 import Toast_Swift
 import Alamofire
+import FirebaseFirestore
+import CoreLocation
 
 class HomeVC: UIViewController {
     
@@ -38,7 +40,12 @@ class HomeVC: UIViewController {
     
     // MARK: - Properties
     
-    var weatherData: WeatherModel?
+    var weatherCity: WeatherCity?
+    var forecast: ForeCastModel?
+    private let locationManager = CLLocationManager()
+    var currentLoc: CLLocation?
+    var userLat: Double = 0.0
+    var userLong: Double = 0.0
     
     // MARK: - View Life Cycles
     
@@ -51,12 +58,6 @@ class HomeVC: UIViewController {
     }
     
     // MARK: - Selectors
-    
-    // Menu Button Action
-    @IBAction func menuButtonAction(_ sender: UIButton) {
-        self.view.endEditing(true)
-       
-    }
     
     // LogOut Button Action
     @IBAction func logOutButtonAction(_ sender: UIButton) {
@@ -79,17 +80,34 @@ class HomeVC: UIViewController {
     
     // Initial Config
     func initialConfig() {
+        self.locationManager.requestAlwaysAuthorization()
+        self.locationManager.requestWhenInUseAuthorization()
+        if CLLocationManager.locationServicesEnabled() {
+            self.locationManager.delegate = self
+            self.locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+            self.locationManager.startUpdatingLocation()
+        }
+        if (CLLocationManager.authorizationStatus() == .authorizedWhenInUse || CLLocationManager.authorizationStatus() == .authorizedAlways) {
+            currentLoc = locationManager.location
+            if currentLoc != nil{
+                self.userLat = currentLoc!.coordinate.latitude
+                self.userLong = currentLoc!.coordinate.longitude
+            }
+        }
         self.setupUI()
         self.setUserInfo()
-        
+        self.registerCell()
         self.collectionView.dataSource = self
         self.collectionView.delegate = self
         
+        self.getAppSettingsDataFromFirestoreDatabase()
+    }
+    
+    // Register Cell
+    func registerCell() {
         self.tableView.dataSource = self
         self.tableView.delegate = self
-        self.tableView.reloadData()
-        
-        self.forecastApi()
+        self.tableView.register(UINib(nibName: DailyTableViewCell.xibName, bundle: nil), forCellReuseIdentifier: DailyTableViewCell.cellIdentifier)
     }
     
     // Setup UI
@@ -124,16 +142,41 @@ class HomeVC: UIViewController {
     }
     
     func setWeatherData() {
-        self.labelCity.text = weatherData?.location?.name
-        self.labelTemp.text = "\(weatherData?.current?.temp_c ?? 0) ºC"
-        self.labelWind.text = "\(weatherData?.current?.wind_mph ?? 0) mph"
-        self.labelPressure.text = "\(weatherData?.current?.pressure_mb ?? 0) hPa"
-        
-        self.labelHumidity.text = "\(weatherData?.current?.humidity ?? 0) %"
-        self.labelVisibility.text = "\(weatherData?.current?.vis_km ?? 0 ) km"
-        self.labelWeather.text =  weatherData?.current?.condition?.text
-//        print(weatherData?.current?.condition?.icon?.split(separator: "/").last ?? "")
+        self.labelCity.text = weatherCity?.name
+        self.labelTemp.text = "\(weatherCity?.main?.temp ?? 0) ºC"
 
+        self.labelWind.text = "\(weatherCity?.wind?.speed ?? 0) m/s"
+        self.labelPressure.text = "\(weatherCity?.main?.pressure ?? 0) hPa"
+        self.labelHumidity.text = "\(weatherCity?.main?.humidity ?? 0) %"
+        self.labelVisibility.text = "\((weatherCity?.visibility ?? 0) / 1000) km" //Se retorna en metros lo convertimos a km
+
+        if let weather = weatherCity?.weather?.first {
+            self.labelWeather.text =  weather.description
+            self.imageWeather.image = UIImage(named: weather.icon ?? "")
+        }
+
+    }
+    
+    // Get App Settings From Firestore Database
+    func getAppSettingsDataFromFirestoreDatabase() {
+        let db = Firestore.firestore()
+        showLoading()
+        db.collection("AppSettings").document("AppSettings").getDocument(completion: { snapshot, error in
+            if let error = error {
+                dissmissLoader()
+                print(error.localizedDescription)
+            } else {
+                if let document = snapshot, document.exists {
+                    if let data = document.data() {
+                        let appSetting = AppSettingsModel(dictionary: (data as NSDictionary))
+                        let ApiKey = (appSetting?.ApiKey ?? []).randomElement() ?? ""
+                        self.weatherApi(appid: ApiKey, lat: self.userLat, lon: self.userLong)
+                    }
+                } else {
+                    print("Document does not exist")
+                }
+            }
+        })
     }
     
 }
@@ -143,21 +186,35 @@ class HomeVC: UIViewController {
 // MARK: Api Call
 extension HomeVC {
     
-    // Forecast Api
-    func forecastApi() {
-        let param: Parameters = [
-            "q": "Surat"
-        ]
-        APIHelper.forecastApi(parameters: param) { status, data, error in
+    func weatherApi(appid: String, lat: Double, lon: Double) {
+        let url = "\(Apis.base_url)/weather?lat=\(lat)&lon=\(lon)&units=\(Apis.units)&appid=\(appid)"
+        APIHelper.weatherApi(url: url) { status, data, error in
             if !status {
                 if error != nil {
                     print(error?.localizedDescription ?? "")
                 }
             } else {
                 if let data = data as Any as? NSDictionary {
-                    self.weatherData = WeatherModel.init(dictionary: data)
+                    self.weatherCity = WeatherCity.init(dictionary: data)
                     self.setWeatherData()
+                    self.forecastApi(appid: appid, lat: lat, lon: lon)
+                }
+            }
+        }
+    }
+    
+    func forecastApi(appid: String, lat: Double, lon: Double) {
+        let url = "\(Apis.base_url)/onecall?lat=\(lat)&lon=\(lon)&exclude=minutely,current&units=\(Apis.units)&appid=\(appid)"
+        APIHelper.forecastApi(url: url) { status, data, error in
+            if !status {
+                if error != nil {
+                    print(error?.localizedDescription ?? "")
+                }
+            } else {
+                if let data = data as Any as? NSDictionary {
+                    self.forecast = ForeCastModel.init(dictionary: data)
                     self.collectionView.reloadData()
+                    self.tableView.reloadData()
                 }
             }
         }
@@ -169,14 +226,24 @@ extension HomeVC {
 extension HomeVC: UICollectionViewDataSource, UICollectionViewDelegate {
     
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return self.weatherData?.forecast?.forecastday?.first?.hour?.count ?? 0
+        if let f = forecast { return f.hourly?.count ?? 0 } else { return 0 }
     }
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "HourlyCollectionViewCell", for: indexPath) as! HourlyCollectionViewCell
-        let rowPath = self.weatherData?.forecast?.forecastday?.first?.hour?[indexPath.row]
-        cell.labelHour.text = "\(rowPath?.time?.split(separator: " ").last ?? "")"
-        cell.labelTemp.text = "\(rowPath?.temp_c ?? 0)º"
+        
+        if let f = forecast {
+            
+            let hourly = f.hourly?[indexPath.row]
+            
+            cell.labelTemp.text = "\(Int(hourly?.temp ?? 0))º"
+            cell.labelHour.text = Date(timeIntervalSince1970: Double(hourly?.dt ?? 0)).getNumberNameDay()
+            if let weather = hourly?.weather?.first {
+                cell.imageWeather.image = UIImage(named: weather.icon ?? "")
+            }
+        }
+        
         return cell
     }
     
@@ -199,25 +266,24 @@ extension HomeVC: UICollectionViewDataSource, UICollectionViewDelegate {
 extension HomeVC: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return 0
-//        if let d = dailyWeather { return d.count } else { return 0 }
+        if let d = forecast?.daily { return d.count } else { return 0 }
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
 
-        let cell = tableView.dequeueReusableCell(withIdentifier: "DailyTableViewCell", for: indexPath)
+        let cell = tableView.dequeueReusableCell(withIdentifier: DailyTableViewCell.cellIdentifier, for: indexPath) as! DailyTableViewCell
 
-//        if let d = dailyWeather {
-//
-//            let daily = d[indexPath.row]
-//
-//            cell.textLabel?.text = Date(timeIntervalSince1970: Double(daily.dt)).getMouthDay()
-//            cell.detailTextLabel?.text =  "\(Int(daily.temp.max))º / \(Int(daily.temp.min))º"
-//
-//            if let weather = daily.weather.first {
-//                cell.imageView?.image = UIImage(named: weather.icon)
-//            }
-//        }
+        if let d = forecast?.daily {
+
+            let daily = d[indexPath.row]
+
+            cell.dateLabel.text = Date(timeIntervalSince1970: Double(daily.dt ?? 0)).getMouthDay()
+            cell.tempLabel.text =  "\(Int(daily.temp?.max ?? 0))º / \(Int(daily.temp?.min ?? 0))º"
+
+            if let weather = daily.weather?.first {
+                cell.imgView.image = UIImage(named: weather.icon ?? "")
+            }
+        }
         
         return cell
     }
@@ -227,4 +293,23 @@ extension HomeVC: UITableViewDataSource, UITableViewDelegate {
     }
 
 
+}
+
+// MARK: CLLocationManagerDelegate
+extension HomeVC: CLLocationManagerDelegate {
+    
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        print(#function)
+        if let location = manager.location {
+            self.currentLoc = location
+            self.userLat = location.coordinate.latitude
+            self.userLong = location.coordinate.longitude
+            manager.stopUpdatingLocation()
+        }
+    }
+    
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        print("Error \(error)")
+    }
+    
 }

@@ -18,5 +18,34 @@ extension Date {
         dateFormatter.dateFormat = format
         return dateFormatter.string(from: self)
     }
+    
+    func getNumberNameDay() -> String {
+        let weekdays = [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri",
+            "Sat"
+        ]
+        
+        let calendar = Calendar.current.component(.weekday, from: self)
+        
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.dateFormat = "HH"
+        
+        return "\(weekdays[calendar - 1]) \(formatter.string(from: self))"
+    }
+    
+    func getMouthDay() -> String {
+        
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.dateFormat = "MMMM d"
+        
+        return "\(formatter.string(from: self))"
+    }
         
 }

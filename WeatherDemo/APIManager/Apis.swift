@@ -11,8 +11,7 @@ class Apis {
     
     static var shared = Apis()
     
-    static var base_url = "https://weatherapi-com.p.rapidapi.com/"
-    
-    var forecastApi = base_url + "forecast.json"
+    static var base_url = "https://api.openweathermap.org/data/2.5"
+    static let units = "metric"
         
 }

@@ -26,8 +26,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
         let providerFactory = YourAppCheckProviderFactory()
         AppCheck.setAppCheckProviderFactory(providerFactory)
-        FirebaseApp.configure()
-        self.getAppSettingsDataFromFirestoreDatabase()
+        FirebaseApp.configure()        
         self.checkLogin()
         
         return true

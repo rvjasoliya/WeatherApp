@@ -15,34 +15,12 @@ class APIManager: NSObject {
     var manager = Session.default
     var absoluteUrl = ""
     
-    func getResponseAPI(url: String, parameters: Parameters = [:], isPring: Bool = false, completionHandler: @escaping (AnyObject?, NSError?)->()) ->() {
+    func getResponseAPI(url: String, isPring: Bool = false, completionHandler: @escaping (AnyObject?, NSError?)->()) ->() {
         print("get url", url)
-        absoluteUrl = url
         if obj_AppDelegate.window != nil {
             showLoading()
         }
-        let ApiKey = (appSettings?.ApiKey ?? []).randomElement()
-        let headers: HTTPHeaders = [
-            
-            "X-RapidAPI-Key": (ApiKey ?? "2bc7ac5d8emshe55d4d11acc0897p1c8019jsnf5eef708a08e"),
-            "X-RapidAPI-Host": "weatherapi-com.p.rapidapi.com"
-        ]
-        var param: Parameters? = parameters
-        if let urlParameters = param {
-            if !(urlParameters.isEmpty) {
-                absoluteUrl.append("?")
-                var array:[String] = []
-                let _ = urlParameters.map { (key, value) -> Bool in
-                    let str = key + "=" +  String(describing: value)
-                    array.append(str)
-                    return true
-                }
-                absoluteUrl.append(array.joined(separator: "&"))
-            }
-        }
-        param = nil
-        print(absoluteUrl)
-        manager.request(absoluteUrl, method: HTTPMethod.get, parameters: nil, encoding: JSONEncoding.default, headers: headers).validate().responseString(completionHandler: { (response) in
+        manager.request(url, method: HTTPMethod.get, parameters: nil, encoding: JSONEncoding.default, headers: nil).validate().responseString(completionHandler: { (response) in
             switch response.result {
             case .success( _):
                 if (isPring) {
